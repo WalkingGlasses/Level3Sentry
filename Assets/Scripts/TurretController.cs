@@ -8,12 +8,10 @@ public class TurretController : MonoBehaviour
         Sniper,
         Shotgun
     }
-    //Like ALL Turret shenanigens are here
+    //slight changes have been made here compared to old script, too annoyed to note them in detail
 
     [Header("Turret")]
     public TurretType turretType;
-
-    public Transform player;
 
     [Header("Detection")]
     public float range = 5f;
@@ -36,34 +34,31 @@ public class TurretController : MonoBehaviour
     public int shotgunPellets = 5;
     public float shotgunSpread = 30f;
 
+    [Header("Sniper")]
+    public float sniperLineWidth = 0.3f;
+
     private float nextFireTime;
+
     private bool active = true;
+
     private bool sniperHasFired = false;
 
     private LineRenderer lineRenderer;
+    
 
     void Start()
     {
-        lineRenderer = GetComponent<LineRenderer>();
-
-        if (player == null)
-        {
-            GameObject playerObject =
-                GameObject.FindGameObjectWithTag("Player");
-
-            if (playerObject != null)
-                player = playerObject.transform;
-        }
+        lineRenderer =
+            GetComponent<LineRenderer>();
 
         DrawRange();
     }
-
+    
     void Update()
     {
-        // Draws range constantly so it updates with rotation(i broke it before and didnt use transform.right and made it stuck to the right HAHAHAHAHHA
         DrawRange();
 
-        if (!active || player == null)
+        if (!active)
             return;
 
         switch (turretType)
@@ -81,36 +76,47 @@ public class TurretController : MonoBehaviour
                 break;
         }
     }
-    
+
     void FlameTurret()
     {
-        if (IsInsideCone())
-        {
-            if (Time.time >= nextFireTime)
-            {
-                FireProjectile(
-                    GetDirectionToPlayer()
-                );
+        Enemy target =
+            FindEnemyInCone();
 
-                nextFireTime = Time.time + flameFireRate;
-            }
+        if (target == null)
+            return;
+
+        if (Time.time >= nextFireTime)
+        {
+            Vector2 direction =
+                GetDirectionToEnemy(target);
+
+            FireProjectile(direction);
+
+            nextFireTime =
+                Time.time +
+                flameFireRate;
         }
     }
 
     void SniperTurret()
     {
-        bool insideSightLine = IsInsideSightLine();
+        Enemy target =
+            FindEnemyInSightLine();
 
-        if (insideSightLine && !sniperHasFired)
+        if (target != null &&
+            !sniperHasFired)
         {
-            FireProjectile(
-                GetDirectionToPlayer()
-            );
+            Vector2 direction =
+                GetDirectionToEnemy(target);
+
+            FireProjectile(direction);
 
             sniperHasFired = true;
         }
 
-        if (!insideSightLine)
+        // Allow the sniper to fire again
+        // after the enemy leaves the line.
+        if (target == null)
         {
             sniperHasFired = false;
         }
@@ -118,95 +124,151 @@ public class TurretController : MonoBehaviour
 
     void ShotgunTurret()
     {
-        if (IsInsideCone())
-        {
-            if (Time.time >= nextFireTime)
-            {
-                FireShotgun();
+        Enemy target =
+            FindEnemyInCone();
 
-                nextFireTime =
-                    Time.time + shotgunFireRate;
-            }
+        if (target == null)
+            return;
+
+        if (Time.time >= nextFireTime)
+        {
+            FireShotgun(target);
+
+            nextFireTime =
+                Time.time +
+                shotgunFireRate;
         }
     }
 
-    bool IsInsideCone()//checks if... its inside a cone
+    Enemy FindEnemyInCone()
     {
-        Vector2 toPlayer =
-            (Vector2)player.position -
-            (Vector2)transform.position;
-
-        float distance = toPlayer.magnitude;
-
-        if (distance > range)
-            return false;
-
-        Vector2 directionToPlayer =
-            toPlayer.normalized;
-
-        // Turret's actual rotated right direction
-        Vector2 forward = transform.right;
-
-        // DOT PRODUCT
-        float dot =
-            Vector2.Dot(
-                forward,
-                directionToPlayer
+        Enemy[] enemies =
+            FindObjectsByType<Enemy>(
+                FindObjectsSortMode.None
             );
 
-        float angleLimit =
-            Mathf.Cos(
-                coneAngle *
-                0.5f *
-                Mathf.Deg2Rad
+        Enemy closestEnemy = null;
+
+        float closestDistance =
+            Mathf.Infinity;
+
+        foreach (Enemy enemy in enemies)
+        {
+            if (enemy == null)
+                continue;
+
+            Vector2 toEnemy =
+                (Vector2)enemy.transform.position -
+                (Vector2)transform.position;
+
+            float distance =
+                toEnemy.magnitude;
+
+            if (distance > range)
+                continue;
+
+            Vector2 directionToEnemy =
+                toEnemy.normalized;
+
+            Vector2 forward =
+                transform.right;
+
+            float dot =
+                Vector2.Dot(
+                    forward,
+                    directionToEnemy
+                );
+
+            float angleLimit =
+                Mathf.Cos(
+                    coneAngle *
+                    0.5f *
+                    Mathf.Deg2Rad
+                );
+
+            if (dot < angleLimit)
+                continue;
+
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closestEnemy = enemy;
+            }
+        }
+
+        return closestEnemy;
+    }
+    
+
+    Enemy FindEnemyInSightLine()
+    {
+        Enemy[] enemies =
+            FindObjectsByType<Enemy>(
+                FindObjectsSortMode.None
             );
 
-        return dot >= angleLimit;
+        Enemy closestEnemy = null;
+
+        float closestDistance =
+            Mathf.Infinity;
+
+        foreach (Enemy enemy in enemies)
+        {
+            if (enemy == null)
+                continue;
+
+            Vector2 toEnemy =
+                (Vector2)enemy.transform.position -
+                (Vector2)transform.position;
+
+            float distance =
+                toEnemy.magnitude;
+
+            if (distance > range)
+                continue;
+
+            Vector2 forward =
+                transform.right;
+
+            float forwardAmount =
+                Vector2.Dot(
+                    toEnemy.normalized,
+                    forward
+                );
+
+            if (forwardAmount <= 0f)
+                continue;
+
+            float perpendicularDistance =
+                Mathf.Abs(
+                    toEnemy.x * forward.y -
+                    toEnemy.y * forward.x
+                );
+
+            if (perpendicularDistance >
+                sniperLineWidth)
+            {
+                continue;
+            }
+
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closestEnemy = enemy;
+            }
+        }
+
+        return closestEnemy;
     }
 
-    bool IsInsideSightLine()//like the cone one but for the sniper one since it isnt a cone but a line
-    {
-        Vector2 toPlayer =
-            (Vector2)player.position -
-            (Vector2)transform.position;
 
-        float distance = toPlayer.magnitude;
-
-        if (distance > range)
-            return false;
-
-        // Turret's actual rotated right direction because last time i messed it up and gave my turrets stiff neck
-        Vector2 forward = transform.right;
-        
-        float forwardAmount =
-            Vector2.Dot(
-                toPlayer.normalized,
-                forward
-            );
-
-        if (forwardAmount <= 0f)
-            return false;
-
-        float perpendicularDistance =
-            Mathf.Abs(
-                toPlayer.x * forward.y -
-                toPlayer.y * forward.x
-            );
-
-        return perpendicularDistance <= 0.3f;
-    }
-
-    // =========================
-    // DIRECTION / ATAN2
-    // =========================
-
-    Vector2 GetDirectionToPlayer()
+    Vector2 GetDirectionToEnemy(
+        Enemy enemy)
     {
         Vector2 difference =
-            (Vector2)player.position -
+            (Vector2)enemy.transform.position -
             (Vector2)firePoint.position;
-
-        // ATAN2
+        
         float angle =
             Mathf.Atan2(
                 difference.y,
@@ -218,12 +280,12 @@ public class TurretController : MonoBehaviour
             Mathf.Sin(angle)
         ).normalized;
     }
-
-
-    void FireProjectile(Vector2 direction)
+    
+    void FireProjectile(
+        Vector2 direction)
     {
         GameObject projectile =
-            Instantiate(//i am scare of the timre when we somehow dont need this HOW
+            Instantiate(
                 projectilePrefab,
                 firePoint.position,
                 Quaternion.identity
@@ -232,32 +294,41 @@ public class TurretController : MonoBehaviour
         Projectile projectileScript =
             projectile.GetComponent<Projectile>();
 
-        projectileScript.direction = direction;
-        projectileScript.speed = projectileSpeed;
-    }
-    
+        projectileScript.direction =
+            direction;
 
-    void FireShotgun()
+        projectileScript.speed =
+            projectileSpeed;
+    }
+
+    void FireShotgun(Enemy target)
     {
         Vector2 direction =
-            GetDirectionToPlayer();
+            GetDirectionToEnemy(target);
 
         float centerAngle =
             Mathf.Atan2(
                 direction.y,
                 direction.x
-            ) * Mathf.Rad2Deg;
+            ) *
+            Mathf.Rad2Deg;
 
-        for (int i = 0; i < shotgunPellets; i++)
+        for (int i = 0;
+             i < shotgunPellets;
+             i++)
         {
             float t;
 
             if (shotgunPellets == 1)
-                t = 0;
+            {
+                t = 0f;
+            }
             else
+            {
                 t =
                     (float)i /
                     (shotgunPellets - 1);
+            }
 
             float angle =
                 centerAngle +
@@ -268,7 +339,8 @@ public class TurretController : MonoBehaviour
                 );
 
             float radians =
-                angle * Mathf.Deg2Rad;
+                angle *
+                Mathf.Deg2Rad;
 
             Vector2 pelletDirection =
                 new Vector2(
@@ -281,14 +353,14 @@ public class TurretController : MonoBehaviour
             );
         }
     }
-    
 
-    void DrawRange()//calls range drawing for linerenderer for both the cone turrets and the one sniper turret
+    void DrawRange()
     {
         if (lineRenderer == null)
             return;
 
-        if (turretType == TurretType.Sniper)
+        if (turretType ==
+            TurretType.Sniper)
         {
             DrawSniperLine();
         }
@@ -305,7 +377,6 @@ public class TurretController : MonoBehaviour
         Vector2 start =
             transform.position;
 
-        // Uses the turret's actual rotation
         Vector2 end =
             start +
             (Vector2)transform.right *
@@ -321,7 +392,7 @@ public class TurretController : MonoBehaviour
             end
         );
     }
-    
+
     void DrawCone()
     {
         int segments = 30;
@@ -332,7 +403,7 @@ public class TurretController : MonoBehaviour
         Vector2 center =
             transform.position;
 
-        // Uses the turret's actual Z rotation
+        // Actual Z rotation
         float centerAngle =
             transform.eulerAngles.z;
 
@@ -341,10 +412,13 @@ public class TurretController : MonoBehaviour
             center
         );
 
-        for (int i = 0; i <= segments; i++)
+        for (int i = 0;
+             i <= segments;
+             i++)
         {
             float t =
-                (float)i / segments;
+                (float)i /
+                segments;
 
             float angle =
                 centerAngle -
@@ -352,14 +426,16 @@ public class TurretController : MonoBehaviour
                 coneAngle * t;
 
             float radians =
-                angle * Mathf.Deg2Rad;
+                angle *
+                Mathf.Deg2Rad;
 
             Vector2 point =
                 center +
                 new Vector2(
                     Mathf.Cos(radians),
                     Mathf.Sin(radians)
-                ) * range;
+                ) *
+                range;
 
             lineRenderer.SetPosition(
                 i + 1,
@@ -367,7 +443,7 @@ public class TurretController : MonoBehaviour
             );
         }
     }
-    
+
     public void StopTurret()
     {
         active = false;
